@@ -2,6 +2,14 @@
 
 A classic naval combat game for two players built with .NET Web API backend and Blazor frontend.
 
+## Game Modes
+
+### 🖥️ Local Game (Single Computer)
+Play with a friend on the same computer! Players take turns, with a turn transition screen to prevent cheating.
+
+### 🌐 Network Game (Two Computers)
+Create or join games over the network. One player creates a game and waits, the other joins.
+
 ## Game Rules
 
 - **2 Players** take turns shooting at each other's boards
@@ -58,17 +66,27 @@ dotnet test
 
 ## API Endpoints
 
+### Network Game Endpoints
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/game/create` | Create a new game |
+| POST | `/api/game/create` | Create a new network game |
 | POST | `/api/game/{gameId}/join` | Join an existing game |
 | POST | `/api/game/{gameId}/shot` | Make a shot (requires X-Player-Id header) |
 | GET | `/api/game/{gameId}/status` | Get game status (requires X-Player-Id header) |
 | GET | `/api/game/available` | Get list of available games |
 
+### Local Game Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/game/local/create` | Create a new local game (both players auto-created) |
+| POST | `/api/game/local/{gameId}/shot` | Make a shot (uses current player's turn) |
+| GET | `/api/game/local/{gameId}/status` | Get local game status |
+
 ## Request/Response Examples
 
-### Create Game
+### Create Network Game
 
 ```json
 POST /api/game/create
@@ -84,11 +102,47 @@ Response:
 }
 ```
 
-### Make Shot
+### Create Local Game
+
+```json
+POST /api/game/local/create
+{
+  "boardSize": 10
+}
+
+Response:
+{
+  "gameId": "guid",
+  "player1Id": "guid",
+  "player2Id": "guid",
+  "boardSize": 10,
+  "currentPlayerId": "guid"
+}
+```
+
+### Make Shot (Network Game)
 
 ```json
 POST /api/game/{gameId}/shot
 Header: X-Player-Id: {playerId}
+{
+  "x": 5,
+  "y": 3
+}
+
+Response:
+{
+  "result": "Water" | "Hit" | "Sunk",
+  "gameOver": false,
+  "winnerId": null,
+  "shipTypeSunk": null
+}
+```
+
+### Make Shot (Local Game)
+
+```json
+POST /api/game/local/{gameId}/shot
 {
   "x": 5,
   "y": 3

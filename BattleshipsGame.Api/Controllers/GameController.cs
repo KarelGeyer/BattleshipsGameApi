@@ -97,4 +97,59 @@ public class GameController : ControllerBase
             .Select(g => new { g.Id, g.BoardSize, g.CreatedAt });
         return Ok(games);
     }
+
+    /// <summary>
+    /// Create a new local game (single computer, two players taking turns)
+    /// </summary>
+    [HttpPost("local/create")]
+    public ActionResult<CreateLocalGameResponse> CreateLocalGame([FromBody] CreateLocalGameRequest request)
+    {
+        try
+        {
+            var response = _gameService.CreateLocalGame(request);
+            return Ok(response);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Get current local game status (shows current player's turn)
+    /// </summary>
+    [HttpGet("local/{gameId}/status")]
+    public ActionResult<LocalGameStatusResponse> GetLocalGameStatus(Guid gameId)
+    {
+        try
+        {
+            var response = _gameService.GetLocalGameStatus(gameId);
+            return Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Make a shot in a local game (automatically uses current player)
+    /// </summary>
+    [HttpPost("local/{gameId}/shot")]
+    public ActionResult<ShotResponse> MakeLocalShot(Guid gameId, [FromBody] ShotRequest request)
+    {
+        try
+        {
+            var response = _gameService.MakeLocalShot(gameId, request);
+            return Ok(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
 }

@@ -161,4 +161,110 @@ public class GameServiceTests
         
         Assert.Empty(availableGames);
     }
+
+    // Local game tests
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(15)]
+    [InlineData(20)]
+    public void CreateLocalGame_WithValidBoardSize_ReturnsGameWithBothPlayers(int boardSize)
+    {
+        var request = new CreateLocalGameRequest(boardSize);
+        
+        var response = _gameService.CreateLocalGame(request);
+        
+        Assert.Equal(boardSize, response.BoardSize);
+        Assert.NotEqual(Guid.Empty, response.GameId);
+        Assert.NotEqual(Guid.Empty, response.Player1Id);
+        Assert.NotEqual(Guid.Empty, response.Player2Id);
+        Assert.NotEqual(response.Player1Id, response.Player2Id);
+        Assert.Equal(response.Player1Id, response.CurrentPlayerId);
+    }
+
+    [Fact]
+    public void CreateLocalGame_WithSizeBelowMinimum_ClampsTen()
+    {
+        var request = new CreateLocalGameRequest(5);
+        
+        var response = _gameService.CreateLocalGame(request);
+        
+        Assert.Equal(10, response.BoardSize);
+    }
+
+    [Fact]
+    public void GetLocalGameStatus_ReturnsCurrentPlayerInfo()
+    {
+        var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
+        
+        var status = _gameService.GetLocalGameStatus(createResponse.GameId);
+        
+        Assert.Equal(createResponse.GameId, status.GameId);
+        Assert.Equal(GameState.InProgress, status.State);
+        Assert.Equal("Player 1", status.CurrentPlayerName);
+        Assert.NotNull(status.CurrentPlayerBoard);
+        Assert.NotNull(status.OpponentBoard);
+    }
+
+    [Fact]
+    public void MakeLocalShot_ValidShot_ReturnsShotResult()
+    {
+        var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
+        
+        var shotRequest = new ShotRequest(0, 0);
+        var shotResponse = _gameService.MakeLocalShot(createResponse.GameId, shotRequest);
+        
+        Assert.True(shotResponse.Result == ShotResult.Water || 
+                   shotResponse.Result == ShotResult.Hit || 
+                   shotResponse.Result == ShotResult.Sunk);
+    }
+
+    [Fact]
+    public void MakeLocalShot_SwitchesTurn()
+    {
+        var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
+        
+        // First shot by Player 1
+        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0));
+        
+        var status = _gameService.GetLocalGameStatus(createResponse.GameId);
+        
+        // Should now be Player 2's turn
+        Assert.Equal("Player 2", status.CurrentPlayerName);
+        Assert.Equal(createResponse.Player2Id, status.CurrentPlayerId);
+    }
+
+    [Fact]
+    public void MakeLocalShot_SamePositionTwice_ThrowsException()
+    {
+        var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
+        
+        // Player 1 shoots at (0,0)
+        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0));
+        
+        // Player 2 shoots at (1,1)
+        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(1, 1));
+        
+        // Player 1 tries to shoot at (0,0) again (already shot by player 1)
+        // This will fail because the cell is already hit on player 2's board
+        Assert.Throws<InvalidOperationException>(() => 
+            _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0)));
+    }
+
+    [Fact]
+    public void GetLocalGameStatus_NonExistentGame_ThrowsException()
+    {
+        Assert.Throws<InvalidOperationException>(() => 
+            _gameService.GetLocalGameStatus(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void GetLocalGameStatus_NonLocalGame_ThrowsException()
+    {
+        // Create a regular (network) game, not a local game
+        var createResponse = _gameService.CreateGame(new CreateGameRequest(10));
+        
+        Assert.Throws<InvalidOperationException>(() => 
+            _gameService.GetLocalGameStatus(createResponse.GameId));
+    }
 }

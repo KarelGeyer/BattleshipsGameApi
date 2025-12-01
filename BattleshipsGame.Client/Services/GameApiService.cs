@@ -10,6 +10,11 @@ public interface IGameApiService
     Task<ShotResponse?> MakeShotAsync(Guid gameId, Guid playerId, int x, int y);
     Task<GameStatusResponse?> GetGameStatusAsync(Guid gameId, Guid playerId);
     Task<IEnumerable<AvailableGame>> GetAvailableGamesAsync();
+    
+    // Local game (single computer) mode
+    Task<CreateLocalGameResponse?> CreateLocalGameAsync(int boardSize);
+    Task<LocalGameStatusResponse?> GetLocalGameStatusAsync(Guid gameId);
+    Task<ShotResponse?> MakeLocalShotAsync(Guid gameId, int x, int y);
 }
 
 public class GameApiService : IGameApiService
@@ -65,5 +70,27 @@ public class GameApiService : IGameApiService
     {
         var response = await _httpClient.GetFromJsonAsync<IEnumerable<AvailableGame>>("api/game/available");
         return response ?? Enumerable.Empty<AvailableGame>();
+    }
+
+    public async Task<CreateLocalGameResponse?> CreateLocalGameAsync(int boardSize)
+    {
+        var request = new CreateLocalGameRequest(boardSize);
+        var response = await _httpClient.PostAsJsonAsync("api/game/local/create", request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<CreateLocalGameResponse>();
+    }
+
+    public async Task<LocalGameStatusResponse?> GetLocalGameStatusAsync(Guid gameId)
+    {
+        var response = await _httpClient.GetFromJsonAsync<LocalGameStatusResponse>($"api/game/local/{gameId}/status");
+        return response;
+    }
+
+    public async Task<ShotResponse?> MakeLocalShotAsync(Guid gameId, int x, int y)
+    {
+        var request = new ShotRequest(x, y);
+        var response = await _httpClient.PostAsJsonAsync($"api/game/local/{gameId}/shot", request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ShotResponse>();
     }
 }

@@ -9,6 +9,11 @@ public interface IGameService
     ShotResponse MakeShot(Guid gameId, Guid playerId, ShotRequest request);
     GameStatusResponse GetGameStatus(Guid gameId, Guid playerId);
     IEnumerable<Game> GetAvailableGames();
+    
+    // Local game (single computer) mode
+    CreateLocalGameResponse CreateLocalGame(CreateLocalGameRequest request);
+    LocalGameStatusResponse GetLocalGameStatus(Guid gameId);
+    ShotResponse MakeLocalShot(Guid gameId, ShotRequest request);
 }
 
 public class GameService : IGameService
@@ -163,6 +168,133 @@ public class GameService : IGameService
         lock (_lock)
         {
             return _games.Values.Where(g => g.State == GameState.WaitingForPlayer).ToList();
+        }
+    }
+
+    public CreateLocalGameResponse CreateLocalGame(CreateLocalGameRequest request)
+    {
+        var boardSize = Math.Clamp(request.BoardSize, 10, 20);
+        
+        var game = new Game
+        {
+            BoardSize = boardSize,
+            State = GameState.InProgress,
+            IsLocalGame = true
+        };
+
+        var player1 = new Player("Player 1", boardSize);
+        var player2 = new Player("Player 2", boardSize);
+        
+        game.Player1 = player1;
+        game.Player2 = player2;
+        
+        PlaceShipsRandomly(player1.Board);
+        PlaceShipsRandomly(player2.Board);
+        
+        game.CurrentPlayerId = player1.Id;
+        
+        lock (_lock)
+        {
+            _games[game.Id] = game;
+        }
+
+        return new CreateLocalGameResponse(
+            game.Id, 
+            player1.Id, 
+            player2.Id, 
+            boardSize, 
+            player1.Id
+        );
+    }
+
+    public LocalGameStatusResponse GetLocalGameStatus(Guid gameId)
+    {
+        lock (_lock)
+        {
+            if (!_games.TryGetValue(gameId, out var game))
+                throw new InvalidOperationException("Game not found");
+
+            if (!game.IsLocalGame)
+                throw new InvalidOperationException("This is not a local game");
+
+            var currentPlayer = game.CurrentPlayerId == game.Player1!.Id ? game.Player1 : game.Player2!;
+            var opponent = game.CurrentPlayerId == game.Player1!.Id ? game.Player2! : game.Player1;
+
+            return new LocalGameStatusResponse(
+                game.Id,
+                game.State,
+                game.CurrentPlayerId!.Value,
+                game.WinnerId,
+                game.BoardSize,
+                currentPlayer.Name,
+                CreateBoardView(currentPlayer.Board, true),
+                CreateBoardView(opponent.Board, false)
+            );
+        }
+    }
+
+    public ShotResponse MakeLocalShot(Guid gameId, ShotRequest request)
+    {
+        lock (_lock)
+        {
+            if (!_games.TryGetValue(gameId, out var game))
+                throw new InvalidOperationException("Game not found");
+
+            if (!game.IsLocalGame)
+                throw new InvalidOperationException("This is not a local game");
+
+            if (game.State != GameState.InProgress)
+                throw new InvalidOperationException("Game is not in progress");
+
+            var shooter = game.CurrentPlayerId == game.Player1!.Id ? game.Player1 : game.Player2!;
+            var target = game.CurrentPlayerId == game.Player1!.Id ? game.Player2! : game.Player1;
+
+            var cell = target.Board.GetCell(request.X, request.Y);
+
+            if (cell.State == CellState.Hit || cell.State == CellState.Miss)
+                throw new InvalidOperationException("Cell already targeted");
+
+            ShotResult result;
+            string? shipTypeSunk = null;
+
+            if (cell.State == CellState.Ship && cell.ShipId.HasValue)
+            {
+                cell.State = CellState.Hit;
+                var ship = target.Board.Ships.First(s => s.Id == cell.ShipId);
+                ship.HitCount++;
+
+                if (ship.IsSunk)
+                {
+                    result = ShotResult.Sunk;
+                    shipTypeSunk = ship.Type.ToString();
+                }
+                else
+                {
+                    result = ShotResult.Hit;
+                }
+            }
+            else
+            {
+                cell.State = CellState.Miss;
+                result = ShotResult.Water;
+            }
+
+            bool gameOver = target.Board.AllShipsSunk;
+            Guid? winnerId = null;
+
+            if (gameOver)
+            {
+                game.State = GameState.Finished;
+                game.WinnerId = shooter.Id;
+                winnerId = shooter.Id;
+            }
+            else
+            {
+                // Switch to the other player's turn
+                game.CurrentPlayerId = target.Id;
+            }
+
+            return new ShotResponse(result, gameOver, winnerId, shipTypeSunk);
         }
     }
 
