@@ -1,0 +1,348 @@
+@page "/local-game"
+@using BattleshipsGame.Client.Models
+@using BattleshipsGame.Client.Services
+@inject IGameApiService GameApi
+@rendermode InteractiveServer
+
+<PageTitle>Battleships - Local Game</PageTitle>
+
+<div class="game-container">
+    <h1>🚢 Battleships - Local Game</h1>
+    <p class="text-muted">Two players, one computer!</p>
+    
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (gameId == null)
+    {
+        <div class="game-menu">
+            <h2>Start Local Game</h2>
+            
+            <div class="create-game-section mb-4">
+                <div class="form-group">
+                    <label>Board Size (10-20):</label>
+                    <input type="number" class="form-control" @bind="boardSize" min="10" max="20" />
+                </div>
+                <button class="btn btn-primary btn-lg mt-3" @onclick="CreateLocalGame" disabled="@isLoading">
+                    @if (isLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                    🎮 Start Game
+                </button>
+            </div>
+            
+            <div class="mt-4">
+                <a href="/game" class="btn btn-outline-secondary">← Back to Network Game</a>
+            </div>
+        </div>
+    }
+    else if (showTurnTransition)
+    {
+        <div class="turn-transition text-center">
+            <div class="alert alert-info">
+                <h2>🔄 Pass the device to @gameStatus?.CurrentPlayerName!</h2>
+                <p>Click "Ready" when @gameStatus?.CurrentPlayerName is ready to take their turn.</p>
+                <p class="text-muted">This ensures the other player doesn't see your ships!</p>
+            </div>
+            <button class="btn btn-success btn-lg" @onclick="ConfirmTurnSwitch">
+                ✅ @gameStatus?.CurrentPlayerName is Ready!
+            </button>
+        </div>
+    }
+    else if (gameStatus != null)
+    {
+        <div class="game-board-container">
+            <div class="game-info">
+                @if (gameStatus.State == GameState.Finished)
+                {
+                    <div class="alert alert-success">
+                        <h3>🎉 @GetWinnerName() Wins!</h3>
+                        <button class="btn btn-primary mt-2" @onclick="ResetGame">Play Again</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-success">
+                        <h3>🎯 @gameStatus.CurrentPlayerName's Turn!</h3>
+                    </div>
+                }
+                
+                @if (lastShotResult != null && gameStatus.State == GameState.InProgress)
+                {
+                    <div class="alert @GetShotResultClass()">
+                        @GetShotResultMessage()
+                    </div>
+                }
+            </div>
+            
+            <div class="boards-row">
+                <div class="board-section">
+                    <h3>@gameStatus.CurrentPlayerName's Board</h3>
+                    <div class="game-board" style="--board-size: @gameStatus.BoardSize">
+                        @for (int y = 0; y < gameStatus.BoardSize; y++)
+                        {
+                            @for (int x = 0; x < gameStatus.BoardSize; x++)
+                            {
+                                var cell = GetCell(gameStatus.CurrentPlayerBoard, x, y);
+                                <div class="cell @GetCellClass(cell, true)">
+                                    @GetCellContent(cell, true)
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+                
+                <div class="board-section">
+                    <h3>Opponent's Board (Target)</h3>
+                    <div class="game-board" style="--board-size: @gameStatus.BoardSize">
+                        @for (int y = 0; y < gameStatus.BoardSize; y++)
+                        {
+                            @for (int x = 0; x < gameStatus.BoardSize; x++)
+                            {
+                                var cellX = x;
+                                var cellY = y;
+                                var cell = GetCell(gameStatus.OpponentBoard, x, y);
+                                var canShoot = cell != null && !cell.IsHit && !cell.IsMiss && gameStatus.State == GameState.InProgress;
+                                <div class="cell @GetCellClass(cell, false) @(canShoot ? "clickable" : "")" 
+                                     @onclick="() => MakeShot(cellX, cellY)"
+                                     title="@(canShoot ? "Click to shoot!" : "")">
+                                    @GetCellContent(cell, false)
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .game-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .game-menu {
+        max-width: 600px;
+        margin: 0 auto;
+        text-align: center;
+    }
+    
+    .boards-row {
+        display: flex;
+        gap: 40px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .board-section {
+        text-align: center;
+    }
+    
+    .game-board {
+        display: grid;
+        grid-template-columns: repeat(var(--board-size), 30px);
+        grid-template-rows: repeat(var(--board-size), 30px);
+        gap: 2px;
+        background: #333;
+        padding: 2px;
+        border-radius: 5px;
+    }
+    
+    .cell {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        background: #5bb5e0;
+        border-radius: 3px;
+        transition: all 0.2s;
+    }
+    
+    .cell.ship {
+        background: #666;
+    }
+    
+    .cell.hit {
+        background: #dc3545;
+    }
+    
+    .cell.miss {
+        background: #6c757d;
+    }
+    
+    .cell.clickable {
+        cursor: crosshair;
+    }
+    
+    .cell.clickable:hover {
+        background: #ffc107;
+        transform: scale(1.1);
+    }
+    
+    .turn-transition {
+        padding: 50px;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    
+    .game-info {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+</style>
+
+@code {
+    private Guid? gameId;
+    private Guid? player1Id;
+    private Guid? player2Id;
+    private int boardSize = 10;
+    private LocalGameStatusResponse? gameStatus;
+    private string? errorMessage;
+    private bool isLoading;
+    private ShotResponse? lastShotResult;
+    private bool showTurnTransition;
+
+    private async Task CreateLocalGame()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            
+            var response = await GameApi.CreateLocalGameAsync(boardSize);
+            if (response != null)
+            {
+                gameId = response.GameId;
+                player1Id = response.Player1Id;
+                player2Id = response.Player2Id;
+                await RefreshGameStatus();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create game: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task MakeShot(int x, int y)
+    {
+        if (gameId == null || gameStatus?.State != GameState.InProgress)
+            return;
+        
+        try
+        {
+            var response = await GameApi.MakeLocalShotAsync(gameId.Value, x, y);
+            lastShotResult = response;
+            
+            // Refresh to see shot result
+            await RefreshGameStatus();
+            
+            // If game is not over, show turn transition screen
+            if (gameStatus?.State == GameState.InProgress)
+            {
+                showTurnTransition = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to make shot: {ex.Message}";
+        }
+    }
+
+    private void ConfirmTurnSwitch()
+    {
+        showTurnTransition = false;
+        lastShotResult = null;
+        StateHasChanged();
+    }
+
+    private async Task RefreshGameStatus()
+    {
+        if (gameId == null)
+            return;
+            
+        try
+        {
+            gameStatus = await GameApi.GetLocalGameStatusAsync(gameId.Value);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get game status: {ex.Message}";
+        }
+    }
+
+    private void ResetGame()
+    {
+        gameId = null;
+        player1Id = null;
+        player2Id = null;
+        gameStatus = null;
+        lastShotResult = null;
+        showTurnTransition = false;
+        StateHasChanged();
+    }
+
+    private string GetWinnerName()
+    {
+        if (gameStatus?.WinnerId == player1Id)
+            return "Player 1";
+        if (gameStatus?.WinnerId == player2Id)
+            return "Player 2";
+        return "Unknown";
+    }
+
+    private CellView? GetCell(BoardView board, int x, int y)
+    {
+        return board.Cells.FirstOrDefault(c => c.X == x && c.Y == y);
+    }
+
+    private string GetCellClass(CellView? cell, bool isOwnBoard)
+    {
+        if (cell == null) return "";
+        if (cell.IsHit) return "hit";
+        if (cell.IsMiss) return "miss";
+        if (isOwnBoard && cell.IsShip) return "ship";
+        return "";
+    }
+
+    private string GetCellContent(CellView? cell, bool isOwnBoard)
+    {
+        if (cell == null) return "";
+        if (cell.IsHit) return "💥";
+        if (cell.IsMiss) return "•";
+        if (isOwnBoard && cell.IsShip) return "🚢";
+        return "";
+    }
+
+    private string GetShotResultClass()
+    {
+        return lastShotResult?.Result switch
+        {
+            ShotResult.Water => "alert-info",
+            ShotResult.Hit => "alert-warning",
+            ShotResult.Sunk => "alert-danger",
+            _ => "alert-secondary"
+        };
+    }
+
+    private string GetShotResultMessage()
+    {
+        return lastShotResult?.Result switch
+        {
+            ShotResult.Water => "💦 Voda! (Miss)",
+            ShotResult.Hit => "🎯 Zásah! (Hit)",
+            ShotResult.Sunk => $"💥 Potopena celá! ({lastShotResult.ShipTypeSunk} sunk!)",
+            _ => ""
+        };
+    }
+}

@@ -10,6 +10,7 @@ public class Game
     public Guid? WinnerId { get; set; }
     public int BoardSize { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public bool IsLocalGame { get; set; }
 
     public bool IsFull => Player1 != null && Player2 != null;
 }

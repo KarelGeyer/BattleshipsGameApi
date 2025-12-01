@@ -51,3 +51,25 @@ public record CellView(
 );
 
 public record AvailableGame(Guid Id, int BoardSize, DateTime CreatedAt);
+
+// Local game (single computer) mode models
+public record CreateLocalGameRequest(int BoardSize = 10);
+
+public record CreateLocalGameResponse(
+    Guid GameId, 
+    Guid Player1Id, 
+    Guid Player2Id, 
+    int BoardSize,
+    Guid CurrentPlayerId
+);
+
+public record LocalGameStatusResponse(
+    Guid GameId,
+    GameState State,
+    Guid CurrentPlayerId,
+    Guid? WinnerId,
+    int BoardSize,
+    string CurrentPlayerName,
+    BoardView CurrentPlayerBoard,
+    BoardView OpponentBoard
+);

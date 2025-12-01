@@ -35,3 +35,25 @@ public record CellView(
     bool IsMiss,
     bool IsShip  // Only visible for own board
 );
+
+// Local game (single computer) mode DTOs
+public record CreateLocalGameRequest(int BoardSize = 10);
+
+public record CreateLocalGameResponse(
+    Guid GameId, 
+    Guid Player1Id, 
+    Guid Player2Id, 
+    int BoardSize,
+    Guid CurrentPlayerId
+);
+
+public record LocalGameStatusResponse(
+    Guid GameId,
+    GameState State,
+    Guid CurrentPlayerId,
+    Guid? WinnerId,
+    int BoardSize,
+    string CurrentPlayerName,
+    BoardView CurrentPlayerBoard,
+    BoardView OpponentBoard
+);
