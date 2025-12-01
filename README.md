@@ -30,7 +30,7 @@ A classic naval combat game for two players built with .NET Web API backend and 
 
 ### Prerequisites
 
-- .NET 10.0 SDK
+- .NET 9.0 SDK
 
 ### Running the API
 
