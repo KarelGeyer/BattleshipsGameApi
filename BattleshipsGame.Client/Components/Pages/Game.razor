@@ -1,0 +1,412 @@
+@page "/game"
+@using BattleshipsGame.Client.Models
+@using BattleshipsGame.Client.Services
+@inject IGameApiService GameApi
+@rendermode InteractiveServer
+
+<PageTitle>Battleships Game</PageTitle>
+
+<div class="game-container">
+    <h1>🚢 Battleships</h1>
+    
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (gameId == null)
+    {
+        <div class="game-menu">
+            <h2>Game Menu</h2>
+            
+            <div class="create-game-section mb-4">
+                <h3>Create New Game</h3>
+                <div class="form-group">
+                    <label>Board Size (10-20):</label>
+                    <input type="number" class="form-control" @bind="boardSize" min="10" max="20" />
+                </div>
+                <button class="btn btn-primary mt-2" @onclick="CreateGame" disabled="@isLoading">
+                    @if (isLoading) { <span class="spinner-border spinner-border-sm"></span> }
+                    Create Game
+                </button>
+            </div>
+            
+            <div class="join-game-section">
+                <h3>Join Existing Game</h3>
+                <button class="btn btn-info mb-2" @onclick="LoadAvailableGames" disabled="@isLoading">
+                    Refresh Games
+                </button>
+                
+                @if (availableGames != null && availableGames.Any())
+                {
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Board Size</th>
+                                <th>Created</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var game in availableGames)
+                            {
+                                <tr>
+                                    <td>@game.BoardSize x @game.BoardSize</td>
+                                    <td>@game.CreatedAt.ToLocalTime().ToString("g")</td>
+                                    <td>
+                                        <button class="btn btn-success btn-sm" @onclick="() => JoinGame(game.Id)">
+                                            Join
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <p class="text-muted">No available games. Create one!</p>
+                }
+            </div>
+        </div>
+    }
+    else if (gameStatus?.State == GameState.WaitingForPlayer)
+    {
+        <div class="waiting-screen text-center">
+            <h2>Waiting for opponent...</h2>
+            <p>Game ID: <code>@gameId</code></p>
+            <p>Share this ID with a friend to join!</p>
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Waiting...</span>
+            </div>
+        </div>
+    }
+    else if (gameStatus != null)
+    {
+        <div class="game-board-container">
+            <div class="game-info">
+                @if (gameStatus.State == GameState.Finished)
+                {
+                    <div class="alert @(gameStatus.WinnerId == playerId ? "alert-success" : "alert-danger")">
+                        <h3>@(gameStatus.WinnerId == playerId ? "🎉 You Won!" : "😢 You Lost!")</h3>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert @(gameStatus.IsYourTurn ? "alert-success" : "alert-warning")">
+                        @(gameStatus.IsYourTurn ? "🎯 Your Turn!" : "⏳ Opponent's Turn...")
+                    </div>
+                }
+                
+                @if (lastShotResult != null)
+                {
+                    <div class="alert @GetShotResultClass()">
+                        @GetShotResultMessage()
+                    </div>
+                }
+            </div>
+            
+            <div class="boards-row">
+                <div class="board-section">
+                    <h3>Your Board</h3>
+                    <div class="game-board" style="--board-size: @gameStatus.BoardSize">
+                        @if (gameStatus.YourBoard != null)
+                        {
+                            @for (int y = 0; y < gameStatus.BoardSize; y++)
+                            {
+                                @for (int x = 0; x < gameStatus.BoardSize; x++)
+                                {
+                                    var cell = GetCell(gameStatus.YourBoard, x, y);
+                                    <div class="cell @GetCellClass(cell, true)">
+                                        @GetCellContent(cell, true)
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+                
+                <div class="board-section">
+                    <h3>Enemy Board</h3>
+                    <div class="game-board" style="--board-size: @gameStatus.BoardSize">
+                        @if (gameStatus.EnemyBoard != null)
+                        {
+                            @for (int y = 0; y < gameStatus.BoardSize; y++)
+                            {
+                                @for (int x = 0; x < gameStatus.BoardSize; x++)
+                                {
+                                    var cellX = x;
+                                    var cellY = y;
+                                    var cell = GetCell(gameStatus.EnemyBoard, x, y);
+                                    var canShoot = cell != null && gameStatus.IsYourTurn && !cell.IsHit && !cell.IsMiss && gameStatus.State == GameState.InProgress;
+                                    <div class="cell @GetCellClass(cell, false) @(canShoot ? "clickable" : "")" 
+                                         @onclick="() => MakeShot(cellX, cellY)"
+                                         title="@(canShoot ? "Click to shoot!" : "")">
+                                        @GetCellContent(cell, false)
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .game-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .game-menu {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    
+    .boards-row {
+        display: flex;
+        gap: 40px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    
+    .board-section {
+        text-align: center;
+    }
+    
+    .game-board {
+        display: grid;
+        grid-template-columns: repeat(var(--board-size), 30px);
+        grid-template-rows: repeat(var(--board-size), 30px);
+        gap: 2px;
+        background: #333;
+        padding: 2px;
+        border-radius: 5px;
+    }
+    
+    .cell {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        background: #5bb5e0;
+        border-radius: 3px;
+        transition: all 0.2s;
+    }
+    
+    .cell.ship {
+        background: #666;
+    }
+    
+    .cell.hit {
+        background: #dc3545;
+    }
+    
+    .cell.miss {
+        background: #6c757d;
+    }
+    
+    .cell.clickable {
+        cursor: crosshair;
+    }
+    
+    .cell.clickable:hover {
+        background: #ffc107;
+        transform: scale(1.1);
+    }
+    
+    .waiting-screen {
+        padding: 50px;
+    }
+    
+    .game-info {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+</style>
+
+@code {
+    private Guid? gameId;
+    private Guid? playerId;
+    private int boardSize = 10;
+    private GameStatusResponse? gameStatus;
+    private IEnumerable<AvailableGame>? availableGames;
+    private string? errorMessage;
+    private bool isLoading;
+    private ShotResponse? lastShotResult;
+    private System.Threading.Timer? pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAvailableGames();
+    }
+
+    private async Task LoadAvailableGames()
+    {
+        try
+        {
+            isLoading = true;
+            availableGames = await GameApi.GetAvailableGamesAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load games: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CreateGame()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            
+            var response = await GameApi.CreateGameAsync(boardSize);
+            if (response != null)
+            {
+                gameId = response.GameId;
+                playerId = response.PlayerId;
+                await RefreshGameStatus();
+                StartPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create game: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task JoinGame(Guid targetGameId)
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            
+            var response = await GameApi.JoinGameAsync(targetGameId, "Player 2");
+            if (response != null)
+            {
+                gameId = response.GameId;
+                playerId = response.PlayerId;
+                await RefreshGameStatus();
+                StartPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to join game: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task MakeShot(int x, int y)
+    {
+        if (gameId == null || playerId == null || !gameStatus?.IsYourTurn == true)
+            return;
+        
+        try
+        {
+            var response = await GameApi.MakeShotAsync(gameId.Value, playerId.Value, x, y);
+            lastShotResult = response;
+            await RefreshGameStatus();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to make shot: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshGameStatus()
+    {
+        if (gameId == null || playerId == null)
+            return;
+            
+        try
+        {
+            gameStatus = await GameApi.GetGameStatusAsync(gameId.Value, playerId.Value);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get game status: {ex.Message}";
+        }
+    }
+
+    private void StartPolling()
+    {
+        pollTimer?.Dispose();
+        pollTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshGameStatus();
+            });
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private CellView? GetCell(BoardView board, int x, int y)
+    {
+        return board.Cells.FirstOrDefault(c => c.X == x && c.Y == y);
+    }
+
+    private string GetCellClass(CellView? cell, bool isOwnBoard)
+    {
+        if (cell == null) return "";
+        if (cell.IsHit) return "hit";
+        if (cell.IsMiss) return "miss";
+        if (isOwnBoard && cell.IsShip) return "ship";
+        return "";
+    }
+
+    private string GetCellContent(CellView? cell, bool isOwnBoard)
+    {
+        if (cell == null) return "";
+        if (cell.IsHit) return "💥";
+        if (cell.IsMiss) return "•";
+        if (isOwnBoard && cell.IsShip) return "🚢";
+        return "";
+    }
+
+    private string GetShotResultClass()
+    {
+        return lastShotResult?.Result switch
+        {
+            ShotResult.Water => "alert-info",
+            ShotResult.Hit => "alert-warning",
+            ShotResult.Sunk => "alert-danger",
+            _ => "alert-secondary"
+        };
+    }
+
+    private string GetShotResultMessage()
+    {
+        return lastShotResult?.Result switch
+        {
+            ShotResult.Water => "💦 Voda! (Miss)",
+            ShotResult.Hit => "🎯 Zásah! (Hit)",
+            ShotResult.Sunk => $"💥 Potopena celá! ({lastShotResult.ShipTypeSunk} sunk!)",
+            _ => ""
+        };
+    }
+
+    public void Dispose()
+    {
+        pollTimer?.Dispose();
+    }
+}
