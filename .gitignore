@@ -1,0 +1,28 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# .NET
+*.user
+*.suo
+*.cache
+*.docstates
+
+# Visual Studio
+.vs/
+*.userprefs
+
+# Rider
+.idea/
+
+# Node
+node_modules/
+
+# Test results
+TestResults/
+
+# OS files
+.DS_Store
+Thumbs.db
