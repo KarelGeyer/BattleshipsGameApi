@@ -125,8 +125,9 @@ public class GameService : IGameService
                 game.WinnerId = playerId;
                 winnerId = playerId;
             }
-            else
+            else if (result == ShotResult.Water)
             {
+                // Only switch turns on a miss; player gets to play again on a hit
                 game.CurrentPlayerId = target.Id;
             }
 
@@ -288,9 +289,9 @@ public class GameService : IGameService
                 game.WinnerId = shooter.Id;
                 winnerId = shooter.Id;
             }
-            else
+            else if (result == ShotResult.Water)
             {
-                // Switch to the other player's turn
+                // Only switch turns on a miss; player gets to play again on a hit
                 game.CurrentPlayerId = target.Id;
             }
 

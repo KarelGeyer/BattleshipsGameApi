@@ -113,16 +113,51 @@ public class GameServiceTests
         var createResponse = _gameService.CreateGame(new CreateGameRequest(10));
         var joinResponse = _gameService.JoinGame(createResponse.GameId, new JoinGameRequest("Player 2"));
         
-        // Player 1 shoots
-        var shotRequest = new ShotRequest(0, 0);
-        _gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, shotRequest);
+        // Player 1 shoots until they miss to ensure turn switches
+        int x = 0, y = 0;
+        ShotResponse shotResponse;
         
-        // Player 2 shoots at a different position
-        _gameService.MakeShot(createResponse.GameId, joinResponse.PlayerId, new ShotRequest(1, 1));
+        do
+        {
+            shotResponse = _gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, new ShotRequest(x, y));
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
         
-        // Player 1 tries to shoot at same position again
+        if (shotResponse.GameOver)
+            return; // Skip if game ended
+        
+        int missX = x, missY = y;
+        
+        // Player 2 shoots until they miss
+        x = 0; y = 0;
+        do
+        {
+            shotResponse = _gameService.MakeShot(createResponse.GameId, joinResponse.PlayerId, new ShotRequest(x, y));
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
+        
+        if (shotResponse.GameOver)
+            return; // Skip if game ended
+        
+        // Now it's Player 1's turn again, try to shoot at the same cell they already targeted
         Assert.Throws<InvalidOperationException>(() => 
-            _gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, shotRequest));
+            _gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, new ShotRequest(missX, missY)));
     }
 
     [Fact]
@@ -220,18 +255,130 @@ public class GameServiceTests
     }
 
     [Fact]
-    public void MakeLocalShot_SwitchesTurn()
+    public void MakeLocalShot_SwitchesTurnOnMiss()
     {
         var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
         
-        // First shot by Player 1
-        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0));
+        // Keep shooting until we get a miss (Water) to test turn switching
+        int x = 0, y = 0;
+        ShotResponse shotResponse;
+        do
+        {
+            shotResponse = _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(x, y));
+            // If hit, player 1 continues, try next cell
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
         
-        var status = _gameService.GetLocalGameStatus(createResponse.GameId);
+        if (!shotResponse.GameOver)
+        {
+            var status = _gameService.GetLocalGameStatus(createResponse.GameId);
+            
+            // Should now be Player 2's turn after a miss
+            Assert.Equal("Player 2", status.CurrentPlayerName);
+            Assert.Equal(createResponse.Player2Id, status.CurrentPlayerId);
+        }
+    }
+
+    [Fact]
+    public void MakeLocalShot_KeepsTurnOnHit()
+    {
+        // Create multiple games until we find one where (0,0) has a ship
+        GameService gameService;
+        CreateLocalGameResponse createResponse;
+        ShotResponse shotResponse;
         
-        // Should now be Player 2's turn
-        Assert.Equal("Player 2", status.CurrentPlayerName);
-        Assert.Equal(createResponse.Player2Id, status.CurrentPlayerId);
+        // Try to find a game configuration where we get a hit
+        int attempts = 0;
+        do
+        {
+            gameService = new GameService();
+            createResponse = gameService.CreateLocalGame(new CreateLocalGameRequest(10));
+            shotResponse = gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0));
+            attempts++;
+        } while (shotResponse.Result == ShotResult.Water && attempts < 100);
+        
+        // Skip test if we couldn't get a hit (unlikely, but possible)
+        if (shotResponse.Result == ShotResult.Water)
+            return;
+        
+        var status = gameService.GetLocalGameStatus(createResponse.GameId);
+        
+        // Player 1 should still have the turn after hitting a ship
+        Assert.Equal("Player 1", status.CurrentPlayerName);
+        Assert.Equal(createResponse.Player1Id, status.CurrentPlayerId);
+    }
+
+    [Fact]
+    public void MakeShot_KeepsTurnOnHit()
+    {
+        // Create multiple games until we find one where we get a hit
+        GameService gameService;
+        CreateGameResponse createResponse;
+        JoinGameResponse joinResponse;
+        ShotResponse shotResponse;
+        
+        // Try to find a game configuration where we get a hit
+        int attempts = 0;
+        do
+        {
+            gameService = new GameService();
+            createResponse = gameService.CreateGame(new CreateGameRequest(10));
+            joinResponse = gameService.JoinGame(createResponse.GameId, new JoinGameRequest("Player 2"));
+            shotResponse = gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, new ShotRequest(0, 0));
+            attempts++;
+        } while (shotResponse.Result == ShotResult.Water && attempts < 100);
+        
+        // Skip test if we couldn't get a hit (unlikely, but possible)
+        if (shotResponse.Result == ShotResult.Water)
+            return;
+        
+        var status = gameService.GetGameStatus(createResponse.GameId, createResponse.PlayerId);
+        
+        // Player 1 should still have the turn after hitting a ship
+        Assert.True(status.IsYourTurn);
+        Assert.Equal(createResponse.PlayerId, status.CurrentPlayerId);
+    }
+
+    [Fact]
+    public void MakeShot_SwitchesTurnOnMiss()
+    {
+        var createResponse = _gameService.CreateGame(new CreateGameRequest(10));
+        var joinResponse = _gameService.JoinGame(createResponse.GameId, new JoinGameRequest("Player 2"));
+        
+        // Keep shooting until we get a miss (Water) to test turn switching
+        int x = 0, y = 0;
+        ShotResponse shotResponse;
+        do
+        {
+            shotResponse = _gameService.MakeShot(createResponse.GameId, createResponse.PlayerId, new ShotRequest(x, y));
+            // If hit, player 1 continues, try next cell
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
+        
+        if (!shotResponse.GameOver)
+        {
+            var status = _gameService.GetGameStatus(createResponse.GameId, createResponse.PlayerId);
+            
+            // Should now be Player 2's turn after a miss
+            Assert.False(status.IsYourTurn);
+            Assert.Equal(joinResponse.PlayerId, status.CurrentPlayerId);
+        }
     }
 
     [Fact]
@@ -239,16 +386,53 @@ public class GameServiceTests
     {
         var createResponse = _gameService.CreateLocalGame(new CreateLocalGameRequest(10));
         
-        // Player 1 shoots at (0,0)
-        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0));
+        // First ensure we miss to get consistent turn switching, then repeat position
+        // Find a position that results in a miss, then try to target it again
+        int x = 0, y = 0;
+        ShotResponse shotResponse;
         
-        // Player 2 shoots at (1,1)
-        _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(1, 1));
+        // Player 1 shoots until they miss
+        do
+        {
+            shotResponse = _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(x, y));
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
         
-        // Player 1 tries to shoot at (0,0) again (already shot by player 1)
-        // This will fail because the cell is already hit on player 2's board
+        if (shotResponse.GameOver)
+            return; // Skip if game ended
+        
+        int missX = x, missY = y;
+        
+        // Player 2 shoots until they miss
+        x = 0; y = 0;
+        do
+        {
+            shotResponse = _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(x, y));
+            if (shotResponse.Result != ShotResult.Water)
+            {
+                x++;
+                if (x >= 10)
+                {
+                    x = 0;
+                    y++;
+                }
+            }
+        } while (shotResponse.Result != ShotResult.Water && !shotResponse.GameOver);
+        
+        if (shotResponse.GameOver)
+            return; // Skip if game ended
+        
+        // Now it's Player 1's turn again, try to shoot at the same cell they already targeted
         Assert.Throws<InvalidOperationException>(() => 
-            _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(0, 0)));
+            _gameService.MakeLocalShot(createResponse.GameId, new ShotRequest(missX, missY)));
     }
 
     [Fact]
